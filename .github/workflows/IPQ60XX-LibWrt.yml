@@ -1,9 +1,9 @@
-name: 360V6-LibWrt (NSS版)
+name: 360V6-LibWrt (NSS硬件加速版)
 
 on:
   workflow_dispatch:
   # schedule:
-  #   - cron: 0 20 * * 0  # 每周日自动编译
+  #   - cron: 0 20 * * 0  # 每周日自动编译（取消注释启用）
 
 env:
   REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
@@ -66,13 +66,13 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 合并配置文件（正确顺序：通用→设备）
+    - name: 合并配置文件（通用→设备，正确顺序）
       run: |
-        # 先加载通用配置，再加载设备特定配置，让设备配置覆盖通用配置
+        # 先加载通用配置，再加载设备特定配置
         cat $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
         cat $CONFIG_FILE >> $OPENWRT_PATH/.config
         
-        # 强制启用NSS硬件加速核心驱动
+        # 强制启用NSS核心驱动
         echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> $OPENWRT_PATH/.config
         echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> $OPENWRT_PATH/.config
         echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=y" >> $OPENWRT_PATH/.config
@@ -110,7 +110,7 @@ jobs:
           done
         fi
 
-    - name: 执行DIY脚本（添加网络向导+EasyTier）
+    - name: 执行DIY脚本
       run: |
         if [ -f "$GITHUB_WORKSPACE/$DIY_SCRIPT" ]; then
           chmod +x $GITHUB_WORKSPACE/$DIY_SCRIPT
@@ -134,32 +134,41 @@ jobs:
         echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
         echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
 
-    - name: 检查磁盘空间使用
+    - name: 检查磁盘空间
       if: (!cancelled())
       run: df -hT
 
-    - name: 整理固件文件
+    - name: 整理固件文件（修复版）
       if: steps.compile.outputs.status == 'success'
       run: |
         cd $OPENWRT_PATH/bin/targets/*/*
+        
+        # 复制配置文件
         cp $OPENWRT_PATH/.config 360V6.config
         mv config.buildinfo 360V6.config.buildinfo
-        mv libwrt-qualcommax-ipq60xx.manifest 360V6.manifest
         
-        # 保留软件包目录结构（方便后续opkg安装）
+        # 修复：使用通配符匹配manifest文件（兼容单设备和多设备模式）
+        mv *.manifest 360V6.manifest
+        
+        # 保留软件包目录结构
         mkdir -p packages
         cp -r $OPENWRT_PATH/bin/packages/*/* packages/
         tar -zcf 360V6.Packages.tar.gz packages
         
         # 删除无用文件
         rm -rf feeds.buildinfo version.buildinfo sha256sums profiles.json packages
+        
+        # 列出所有生成的固件文件（方便调试）
+        echo "生成的固件文件："
+        ls -la *.bin
+        
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
     - name: 发布固件到Release
       if: steps.compile.outputs.status == 'success'
       uses: ncipollo/release-action@main
       with:
-        name: ${{ env.DATE }} for 360V6 (NSS硬件加速版)
+        name: ${{ env.DATE }} for 360V6 (NSS版)
         allowUpdates: true
         tag: ${{ env.FIRMWARE_TAG }}
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -167,9 +176,9 @@ jobs:
         body: |
           **✅ 360V6路由器专属OpenWrt固件（全功能NSS硬件加速）**
           
-          ### 📒 固件基本信息
+          ### 📒 基本信息
           - 🧠 内核版本：**${{ env.VERSION_KERNEL }}**
-          - ⚡ 网络加速：**全功能NSS硬件加速**（NAT/PPPoE/防火墙/WiFi全加速）
+          - ⚡ 网络加速：**全功能NSS硬件加速**（NAT/PPPoE/防火墙/WiFi）
           - 🎨 默认主题：Aurora
           - 🌐 默认地址：**192.168.2.1**
           - 🔑 默认密码：无（首次登录请设置）
@@ -185,18 +194,16 @@ jobs:
           ### 📚 源码信息
           - 💻 固件源码：${{ env.REPO_URL }}
           - 🌿 源码分支：${{ env.REPO_BRANCH }}
-          - 最后一次源码更新：
+          - 最后一次更新：
           ${{ env.VERSION_INFO }}
 
     - name: 清理旧缓存（保留最近3个）
       run: |
-        # 获取缓存列表并保留最近3个
         gh cache list --key ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}- --json key,createdAt --jq 'sort_by(.createdAt) | reverse | .[3:] | .[] | .key' | while read -r key; do
           gh cache delete "$key"
         done
-        # 输出缓存状态
         echo "========缓存状态========"
-        echo "ccache缓存大小：$(du -sh $OPENWRT_PATH/.ccache | cut -f 1)"
-        echo "工具链缓存大小：$(du -sh $OPENWRT_PATH/staging_dir | cut -f 1)"
+        echo "ccache: $(du -sh $OPENWRT_PATH/.ccache | cut -f 1)"
+        echo "staging: $(du -sh $OPENWRT_PATH/staging_dir | cut -f 1)"
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
