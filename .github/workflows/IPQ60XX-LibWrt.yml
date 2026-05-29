@@ -73,22 +73,70 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 合并配置文件（通用→设备，正确顺序）
+    - name: 合并配置文件并强制单设备模式
       run: |
-        # 先加载通用配置，再加载设备特定配置
+        # 先加载通用配置
         cat $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
-        cat $CONFIG_FILE >> $OPENWRT_PATH/.config
         
-        # 强制启用NSS核心驱动
+        # 强制关闭多设备模式（关键修复1）
+        echo "CONFIG_TARGET_MULTI_PROFILE=n" >> $OPENWRT_PATH/.config
+        
+        # 强制只选择360V6设备（关键修复2）
+        echo "CONFIG_TARGET_qualcommax=y" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_qihoo_360v6=y" >> $OPENWRT_PATH/.config
+        
+        # 强制禁用所有其他设备（关键修复3）
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_alfa-network_ap120c-ax=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_anysafe_e1=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_cambiumnetworks_xe3-4=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_cmiot_ax18=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_glinet_gl-ax1800=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_glinet_gl-axt1800=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-cs-02=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-cs-07=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_kt_ar06-012h=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_lg_gapd-7500=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_link_nn6000-v1=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_link_nn6000-v2=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_linksys_mr7350=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_linksys_mr7500=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_wax214=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_wax610=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_wax610y=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_redmi_ax5=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_redmi_ax5-jdcloud=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap610-outdoor=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap620-hd-v3=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap623-outdoor-hd-v1=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap625-outdoor-hd-v1=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_xiaomi_ax1800=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_yuncore_fap650=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_rbr350=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_rbs350=n" >> $OPENWRT_PATH/.config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_zn_m2=n" >> $OPENWRT_PATH/.config
+        
+        # 强制启用NSS硬件加速
+        echo "CONFIG_ATH11K_MEM_PROFILE_512M=y" >> $OPENWRT_PATH/.config
+        echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=y" >> $OPENWRT_PATH/.config
         echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> $OPENWRT_PATH/.config
         echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> $OPENWRT_PATH/.config
-        echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=y" >> $OPENWRT_PATH/.config
         
         # 移除无效的京东云LED配置
         sed -i '/athena-led/d' $OPENWRT_PATH/.config
         
         cd $OPENWRT_PATH
         make defconfig
+        
+        # 再次强制确认设备选择（关键修复4）
+        sed -i 's/CONFIG_TARGET_MULTI_PROFILE=y/CONFIG_TARGET_MULTI_PROFILE=n/' .config
+        sed -i 's/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_.*=y/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_qihoo_360v6=y/' .config
+        
+        # 验证最终配置
+        echo "最终设备配置："
+        grep -E "CONFIG_TARGET_MULTI_PROFILE|CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_" .config | grep -v "=n"
         
         # 生成编译变量
         SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
@@ -123,6 +171,11 @@ jobs:
           chmod +x $GITHUB_WORKSPACE/$DIY_SCRIPT
           cd $OPENWRT_PATH
           $GITHUB_WORKSPACE/$DIY_SCRIPT
+          
+          # 再次强制确认设备选择（防止DIY脚本修改）
+          sed -i 's/CONFIG_TARGET_MULTI_PROFILE=y/CONFIG_TARGET_MULTI_PROFILE=n/' .config
+          sed -i 's/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_.*=y/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_qihoo_360v6=y/' .config
+          
           make defconfig
         fi
 
@@ -178,8 +231,11 @@ jobs:
           echo "✅ 固件文件生成成功"
         else
           echo "❌ 没有生成任何固件文件"
-          echo "编译日志最后100行："
-          tail -n 100 $OPENWRT_PATH/build_dir/target-*/linux-*/.config
+          echo "检查是否有360V6的manifest文件："
+          ls -la *qihoo_360v6* || echo "没有找到360V6相关文件"
+          
+          echo "编译日志最后200行："
+          tail -n 200 $OPENWRT_PATH/compile_error.log || echo "没有找到编译错误日志"
           exit 1
         fi
 
@@ -192,8 +248,8 @@ jobs:
         cp $OPENWRT_PATH/.config 360V6.config
         mv config.buildinfo 360V6.config.buildinfo
         
-        # 修复：使用通配符匹配manifest文件
-        mv *.manifest 360V6.manifest 2>/dev/null || echo "警告：没有找到manifest文件"
+        # 重命名360V6的manifest文件
+        mv *qihoo_360v6*.manifest 360V6.manifest 2>/dev/null || mv *.manifest 360V6.manifest
         
         # 保留软件包目录结构
         mkdir -p packages
@@ -203,8 +259,17 @@ jobs:
         # 删除无用文件
         rm -rf feeds.buildinfo version.buildinfo sha256sums profiles.json packages
         
+        # 自动重命名固件文件为友好名称
+        for file in *.bin; do
+          if [[ $file == *factory* ]]; then
+            mv "$file" "360V6-factory.bin"
+          elif [[ $file == *sysupgrade* ]]; then
+            mv "$file" "360V6-sysupgrade.bin"
+          fi
+        done
+        
         # 列出所有生成的固件文件
-        echo "生成的固件文件："
+        echo "最终生成的固件文件："
         ls -la *.bin
         
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
@@ -230,7 +295,6 @@ jobs:
           
           ### 📦 预装核心功能
           - 🚀 **网络向导**：首次开机自动引导配置上网和WiFi
-          - 🌐 **EasyTier**：虚拟局域网组网，远程访问家里设备
           - 🔌 **Samba4**：文件共享服务
           - 📶 **WireGuard**：VPN服务
           - 🔄 **自动重启**：定时重启路由器
