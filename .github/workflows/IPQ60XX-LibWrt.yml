@@ -241,6 +241,44 @@ jobs:
           exit 1
         fi
 
+    - name: 验证插件是否被编译
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd $OPENWRT_PATH/bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET
+        
+        echo "检查插件是否存在于manifest中："
+        if grep -q "luci-app-netwizard" 360V6.manifest; then
+          echo "✅ 网络向导插件已编译"
+        else
+          echo "❌ 网络向导插件未编译"
+        fi
+        
+        if grep -q "adguardhome" 360V6.manifest; then
+          echo "✅ AdGuardHome插件已编译"
+        else
+          echo "❌ AdGuardHome插件未编译"
+        fi
+        
+        if grep -q "easytier" 360V6.manifest; then
+          echo "✅ EasyTier插件已编译"
+        else
+          echo "❌ EasyTier插件未编译"
+        fi
+        
+        if grep -q "luci-app-openclash" 360V6.manifest; then
+          echo "✅ OpenClash插件已编译"
+        else
+          echo "❌ OpenClash插件未编译"
+        fi
+        
+        echo "检查IPK文件是否存在："
+        ls -la packages/*/luci-app-netwizard*.ipk 2>/dev/null || echo "没有找到网络向导IPK"
+        ls -la packages/*/adguardhome*.ipk 2>/dev/null || echo "没有找到AdGuardHome IPK"
+        ls -la packages/*/luci-app-adguardhome*.ipk 2>/dev/null || echo "没有找到AdGuardHome WebUI IPK"
+        ls -la packages/*/easytier*.ipk 2>/dev/null || echo "没有找到EasyTier IPK"
+        ls -la packages/*/luci-app-easytier*.ipk 2>/dev/null || echo "没有找到EasyTier WebUI IPK"
+        ls -la packages/*/luci-app-openclash*.ipk 2>/dev/null || echo "没有找到OpenClash IPK"
+
     - name: 整理固件文件（修复版）
       if: steps.compile.outputs.status == 'success'
       run: |
@@ -292,11 +330,14 @@ jobs:
           - 🧠 内核版本：**${{ env.VERSION_KERNEL }}**
           - ⚡ 网络加速：**全功能NSS硬件加速**（NAT/PPPoE/防火墙/WiFi）
           - 🎨 默认主题：Aurora
-          - 🌐 默认地址：**192.168.2.1**
+          - 🌐 默认地址：**192.168.50.1**
           - 🔑 默认密码：无（首次登录请设置）
           
           ### 📦 预装核心功能
           - 🚀 **网络向导**：首次开机自动引导配置上网和WiFi
+          - 🛡️ **AdGuardHome**：全平台广告拦截+DNS防污染
+          - 🌐 **OpenClash**：科学上网客户端（含完整内核）
+          - 🔗 **EasyTier**：虚拟局域网组网，远程访问家里设备
           - 🔌 **Samba4**：文件共享服务
           - 📶 **WireGuard**：VPN服务
           - 🔄 **自动重启**：定时重启路由器
