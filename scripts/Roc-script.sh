@@ -1,15 +1,11 @@
 #!/bin/bash
-# 360V6 全自动优化脚本 - 无报错版
-# 执行后：IP=192.168.50.1 + 雷神 + EasyTier + 全部优化生效
+# 360V6 全自动优化脚本 - 无报错 最终版
+# 功能：IP=192.168.50.1 + EasyTier + 全部系统优化 + 无线优化
 
-# ==================== 1. 修改默认 IP 192.168.50.1 ====================
+# ==================== 1. 修改默认 IP 为 192.168.50.1 ====================
 sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_generate
 
-# ==================== 2. 第三方插件源码拉取 ====================
-# 雷神加速器
-git clone --depth 1 https://github.com/hik4869/leigod-acc.git package/leigod-acc
-git clone --depth 1 https://github.com/hik4869/luci-app-leigod-acc.git package/luci-app-leigod-acc
-
+# ==================== 2. 拉取插件（只保留能正常下载的） ====================
 # EasyTier
 git clone --depth 1 https://github.com/EasyTier/luci-app-easytier.git package/luci-app-easytier
 
@@ -45,8 +41,7 @@ config timeserver 'ntp'
         list server 'cn.pool.ntp.org'
 EOF
 
-# ==================== 6. 强制开启插件 ====================
-echo "CONFIG_PACKAGE_luci-app-leigod-acc=y" >> .config
+# ==================== 6. 开启插件 ====================
 echo "CONFIG_PACKAGE_luci-app-easytier=y" >> .config
 
 make defconfig
