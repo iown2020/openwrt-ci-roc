@@ -1,14 +1,18 @@
 #!/bin/bash
-# 360V6专属DIY脚本 - 仅保留网络向导+EasyTier+基础优化
+# ==============================================
+# 360V6专属DIY脚本（最终版）
+# 包含OpenClash+AdGuardHome+EasyTier+网络向导
+# 默认LAN地址：192.168.50.1
+# ==============================================
 
-# ==================== 基础配置修改 ====================
-# 修改默认IP为192.168.2.1
-sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
+# ==================== 基础系统配置 ====================
+# 修改默认IP为192.168.50.1
+sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_generate
 
 # 修改主机名为360V6
 sed -i "s/hostname='.*'/hostname='360V6'/g" package/base-files/files/bin/config_generate
 
-# 修改固件版本显示（添加编译时间）
+# 修改固件版本显示
 sed -i "s#_('Firmware Version'), (L\.isObject(boardinfo\.release) ? boardinfo\.release\.description + ' / ' : '') + (luciversion || ''),# \
             _('Firmware Version'),\n \
             E('span', {}, [\n \
@@ -22,24 +26,45 @@ sed -i "s#_('Firmware Version'), (L\.isObject(boardinfo\.release) ? boardinfo\.r
                 }, [ 'Built for 360V6 $(date "+%Y-%m-%d")' ])\n \
             ]),#" feeds/luci/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
 
-# ==================== 移除不需要的包 ====================
-# 移除冲突/无用的旧版本包
-rm -rf feeds/luci/applications/luci-app-netwizard
-rm -rf feeds/packages/net/easytier
-
 # ==================== 添加第三方源 ====================
 # 添加EasyTier官方源（最新稳定版）
 echo "src-git easytier https://github.com/EasyTier/luci-app-easytier.git" >> feeds.conf.default
 
-# 更新并安装所有feeds
+# ==================== 更新并安装所有Feeds ====================
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# ==================== 强制启用NSS硬件加速 ====================
-# 确保NSS相关包被选中
+# 强制安装所有第三方插件
+./scripts/feeds install -a -p easytier
+./scripts/feeds install luci-app-netwizard
+./scripts/feeds install luci-app-easytier
+./scripts/feeds install adguardhome
+./scripts/feeds install luci-app-adguardhome
+./scripts/feeds install luci-app-openclash
+
+# ==================== 强制确保核心功能启用 ====================
+# NSS硬件加速
 echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> .config
 echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
 echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=y" >> .config
 
-# 重新生成配置
+# 网络向导
+echo "CONFIG_PACKAGE_luci-app-netwizard=y" >> .config
+echo "CONFIG_PACKAGE_luci-i18n-netwizard-zh-cn=y" >> .config
+
+# AdGuardHome广告拦截
+echo "CONFIG_PACKAGE_adguardhome=y" >> .config
+echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
+echo "CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y" >> .config
+
+# EasyTier虚拟组网
+echo "CONFIG_PACKAGE_easytier=y" >> .config
+echo "CONFIG_PACKAGE_luci-app-easytier=y" >> .config
+echo "CONFIG_PACKAGE_luci-i18n-easytier-zh-cn=y" >> .config
+
+# OpenClash科学上网
+echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
+echo "CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y" >> .config
+
+# 重新生成最终配置
 make defconfig
