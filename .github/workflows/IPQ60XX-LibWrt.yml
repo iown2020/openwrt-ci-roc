@@ -21,45 +21,30 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-    - name: 检查服务器性能
+    - name: 初始化环境
       run: |
-        echo "--------------------------CPU信息--------------------------"
-        echo "CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
-        echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
-
-    - name: 初始化编译环境
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo docker system prune -a -f
-        sudo -E apt-get -y update
-        sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
-        sudo -E apt-get -y autoremove --purge
-        sudo -E apt-get -y clean
-        sudo timedatectl set-timezone "$TZ"
+        sudo apt update
+        sudo apt install -y build-essential ccache git libssl-dev python3 python3-pip unzip bzip2 wget gawk flex bison libncurses-dev zlib1g-dev
 
     - name: 检出仓库代码
       uses: actions/checkout@v4
 
-    - name: 克隆LiBwrt源码
+    - name: 克隆源码
       run: |
         sudo mkdir -p /mnt/openwrt
         sudo chown -R $(id -u):$(id -g) /mnt/openwrt
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL /mnt/openwrt
         cd /mnt/openwrt
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12)
-        echo "VERSION_KERNEL=$VERSION_KERNEL" >> $GITHUB_ENV
 
-    - name: 复制 配置文件 + DIY脚本 到源码目录（关键修复）
+    - name: 复制配置 + 脚本
       run: |
         cp $GITHUB_WORKSPACE/$GENERAL_CONFIG_FILE $OPENWRT_PATH/.config
         cp $GITHUB_WORKSPACE/$CONFIG_FILE $OPENWRT_PATH/.config
-        cp $GITHUB_WORKSPACE/$DIY_SCRIPT $OPENWRT_PATH/Roc-script.sh
+        cp $GITHUB_WORKSPACE/$DIY_SCRIPT $OPENWRT_PATH/
         chmod +x $OPENWRT_PATH/Roc-script.sh
 
-    - name: 执行 DIY 脚本（核心修复）
+    - name: 执行优化脚本
       run: |
         cd $OPENWRT_PATH
         ./Roc-script.sh
@@ -67,27 +52,23 @@ jobs:
     - name: 下载依赖
       run: |
         cd $OPENWRT_PATH
-        make defconfig
         make download -j$(nproc)
 
     - name: 编译固件
-      id: compile
       run: |
         cd $OPENWRT_PATH
         make -j$(nproc) || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 清理多余文件
+    - name: 清理无用文件
       run: |
         cd $OPENWRT_PATH/bin/targets/qualcommax/ipq60xx
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
-        ls -lh
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
     - name: 上传固件
       uses: ncipollo/release-action@v1
       with:
-        name: 360V6 NSS硬件加速固件
+        name: 360V6 NSS固件
         allowUpdates: true
         tag: ${{ env.FIRMWARE_TAG }}
         token: ${{ secrets.GITHUB_TOKEN }}
