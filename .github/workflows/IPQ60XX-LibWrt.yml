@@ -3,7 +3,6 @@ name: 360V6-NSS 固件编译（Roc）
 on:
   workflow_dispatch:
 
-# 只留这一个，解决 Node 问题
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
