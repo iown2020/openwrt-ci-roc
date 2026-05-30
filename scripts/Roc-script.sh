@@ -1,70 +1,74 @@
-#!/bin/bash
-# ==============================================
-# 360V6专属DIY脚本（最终版）
-# 包含OpenClash+AdGuardHome+EasyTier+网络向导
-# 默认LAN地址：192.168.50.1
-# ==============================================
+# ==================== 新增：全套系统&网络&无线优化 ====================
+# 1. ath11k 无线驱动参数
+mkdir -p files/etc/modprobe.d
+cat > files/etc/modprobe.d/ath11k.conf << EOF
+options ath11k irq_mode=0x1
+options ath11k disable_160mhz=1
+EOF
 
-# ==================== 基础系统配置 ====================
-# 修改默认IP为192.168.50.1
-sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_generate
+# 2. 内核内存/网络栈 sysctl 调优
+mkdir -p files/etc/sysctl.d
+cat > files/etc/sysctl.d/99-performance.conf << EOF
+vm.swappiness=10
+vm.vfs_cache_pressure=50
+net.core.netdev_max_backlog=5000
+net.core.somaxconn=4096
+net.ipv4.tcp_fin_timeout=30
+net.ipv4.tcp_congestion_control=cubic
+EOF
 
-# 修改主机名为360V6
-sed -i "s/hostname='.*'/hostname='360V6'/g" package/base-files/files/bin/config_generate
+# 3. 日志优化：仅存内存、限制大小64KB
+sed -i 's/log_ringbuffer_size=.*/log_ringbuffer_size=65536/' package/base-files/files/etc/systemd/system/journald.conf
+sed -i 's/Storage=.*/Storage=volatile/' package/base-files/files/etc/systemd/system/journald.conf
 
-# 修改固件版本显示
-sed -i "s#_('Firmware Version'), (L\.isObject(boardinfo\.release) ? boardinfo\.release\.description + ' / ' : '') + (luciversion || ''),# \
-            _('Firmware Version'),\n \
-            E('span', {}, [\n \
-                (L.isObject(boardinfo.release)\n \
-                ? boardinfo.release.description + ' / '\n \
-                : '') + (luciversion || '') + ' / ',\n \
-            E('a', {\n \
-                href: 'https://github.com/laipeng668/openwrt-6.x',\n \
-                target: '_blank',\n \
-                rel: 'noopener noreferrer'\n \
-                }, [ 'Built for 360V6 $(date "+%Y-%m-%d")' ])\n \
-            ]),#" feeds/luci/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
+# 4. 预设国内NTP服务器
+sed -i 's/0.openwrt.pool.ntp.org/ntp.aliyun.com,time1.aliyun.com/' package/base-files/files/etc/config/system
 
-# ==================== 添加第三方源 ====================
-# 添加EasyTier官方源（最新稳定版）
-echo "src-git easytier https://github.com/EasyTier/luci-app-easytier.git" >> feeds.conf.default
+# 5. 预设无线：区域CN、功率23dBm、漫游/波束成形
+mkdir -p files/etc/config
+cat > files/etc/config/wireless << EOF
+config wifi-device 'radio0'
+        option type 'mac80211'
+        option channel 'auto'
+        option band '5g'
+        option htmode 'HE80'
+        option country 'CN'
+        option txpower '23'
+        option he_su_beamformee '1'
+        option he_mu_beamformee '1'
+        option ieee80211r '1'
+        option ieee80211k '1'
+        option ieee80211v '1'
 
-# ==================== 更新并安装所有Feeds ====================
-./scripts/feeds update -a
-./scripts/feeds install -a
+config wifi-iface 'default_radio0'
+        option device 'radio0'
+        option network 'lan'
+        option mode 'ap'
+        option ssid '360V6_5G'
+        option encryption 'psk2+ccmp'
+        option key '12345678'
 
-# 强制安装所有第三方插件
-./scripts/feeds install -a -p easytier
-./scripts/feeds install luci-app-netwizard
-./scripts/feeds install luci-app-easytier
-./scripts/feeds install adguardhome
-./scripts/feeds install luci-app-adguardhome
-./scripts/feeds install luci-app-openclash
+config wifi-device 'radio1'
+        option type 'mac80211'
+        option channel 'auto'
+        option band '2g'
+        option htmode 'HT40'
+        option country 'CN'
+        option txpower '20'
 
-# ==================== 强制确保核心功能启用 ====================
-# NSS硬件加速
-echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> .config
-echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
-echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=y" >> .config
+config wifi-iface 'default_radio1'
+        option device 'radio1'
+        option network 'lan'
+        option mode 'ap'
+        option ssid '360V6_2.4G'
+        option encryption 'psk2+ccmp'
+        option key '12345678'
+EOF
 
-# 网络向导
-echo "CONFIG_PACKAGE_luci-app-netwizard=y" >> .config
-echo "CONFIG_PACKAGE_luci-i18n-netwizard-zh-cn=y" >> .config
+# 6. OpenClash 端口改为5353 解决DNS冲突
+mkdir -p files/etc/openclash
+echo 'dns_port=5353' > files/etc/openclash/config.ini
 
-# AdGuardHome广告拦截
-echo "CONFIG_PACKAGE_adguardhome=y" >> .config
-echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
-echo "CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y" >> .config
-
-# EasyTier虚拟组网
-echo "CONFIG_PACKAGE_easytier=y" >> .config
-echo "CONFIG_PACKAGE_luci-app-easytier=y" >> .config
-echo "CONFIG_PACKAGE_luci-i18n-easytier-zh-cn=y" >> .config
-
-# OpenClash科学上网
-echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
-echo "CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y" >> .config
-
-# 重新生成最终配置
-make defconfig
+# 7. 精简多余服务
+sed -i '/odhcpd/d' package/base-files/files/etc/rc.local
+sed -i '/dnsmasq/d' package/base-files/files/etc/rc.local
