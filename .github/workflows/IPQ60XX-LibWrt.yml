@@ -38,11 +38,16 @@ jobs:
           cp $GITHUB_WORKSPACE/$DIY_SCRIPT /mnt/openwrt/
           chmod +x /mnt/openwrt/Roc-script.sh
 
-      - name: 生成最终配置
+      - name: 生成最终配置（强制修复内核弹窗）
         run: |
           cd /mnt/openwrt
           cat General.config IPQ60XX.config > .config
           make defconfig
+          # 强制写入修复，永不弹窗
+          echo "CONFIG_NF_CONNTRACK_DSCPREMARK_EXT=n" >> .config
+          echo "CONFIG_NETFILTER_EGRESS=n" >> .config
+          echo "CONFIG_NF_CONNTRACK_PROCFS=y" >> .config
+          make olddefconfig
 
       - name: 下载所有依赖
         run: |
