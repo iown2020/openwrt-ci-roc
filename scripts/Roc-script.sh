@@ -1,47 +1,166 @@
 #!/bin/bash
-# 360V6 全自动优化脚本 - 无报错 最终版
-# 功能：IP=192.168.50.1 + EasyTier + 全部系统优化 + 无线优化
+# 360V6 IPQ60XX 512M 最终脚本
+# 纯脚本注入、不新建独立files目录 | 全功能：IP/汉化/性能/WiFi/AGH/EasyTier
+set -e
 
-# ==================== 1. 修改默认 IP 为 192.168.50.1 ====================
+# ====================== 1. 修改默认管理IP + 主机名 ======================
 sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_generate
+sed -i 's/OpenWrt/360V6-NSS/g' package/base-files/files/bin/config_generate
 
-# ==================== 2. 拉取插件（只保留能正常下载的） ====================
-# EasyTier
-git clone --depth 1 https://github.com/EasyTier/luci-app-easytier.git package/luci-app-easytier
+# ====================== 2. 拉取 EasyTier 插件 ======================
+git clone --depth 1 https://github.com/EasyTier/luci-app-easytier.git package/luci-app-easytier 2>/dev/null || true
 
-# ==================== 3. 无线驱动优化 ====================
-mkdir -p files/etc/modprobe.d
-cat > files/etc/modprobe.d/ath11k.conf << EOF
+# ====================== 3. 无线驱动参数优化 ======================
+mkdir -p package/base-files/files/etc/modprobe.d
+cat > package/base-files/files/etc/modprobe.d/ath11k.conf <<EOF
 options ath11k irq_mode=0x1
 options ath11k disable_160mhz=1
+options ath11k reset_on_err=1
 EOF
 
-# ==================== 4. 系统内核&网络优化 ====================
-mkdir -p files/etc/sysctl.d
-cat > files/etc/sysctl.d/99-performance.conf << EOF
-vm.swappiness=10
-vm.vfs_cache_pressure=50
-net.core.netdev_max_backlog=5000
+# ====================== 4. 系统全局性能调优（sysctl） ======================
+cat > package/base-files/files/etc/sysctl.conf <<EOF
+vm.swappiness=5
+vm.vfs_cache_pressure=30
+vm.min_free_kbytes=8192
+
+net.core.netdev_max_backlog=8192
 net.core.somaxconn=4096
-net.ipv4.tcp_fin_timeout=30
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_fin_timeout=20
+net.ipv4.tcp_keepalive_time=600
 net.ipv4.tcp_congestion_control=cubic
+
+net.ipv4.ip_forward=1
+net.ipv4.tcp_no_metrics_save=1
 EOF
 
-# ==================== 5. 国内NTP + 日志优化 ====================
-mkdir -p files/etc/config
-cat > files/etc/config/system << EOF
-config system
-        option hostname '360V6'
-        option timezone 'CST-8'
-        option log_size '64'
+# ====================== 5. 基础默认配置：中文、时区、DNS转发 ======================
+mkdir -p package/base-files/files/etc/uci-defaults
+cat > package/base-files/files/etc/uci-defaults/99-base-setting <<EOF
+#!/bin/sh
+# 全局中文 + 时区
+uci set luci.main.lang=zh-cn
+uci commit luci
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci set system.@system[0].log_size='32'
+uci set system.@system[0].conloglevel='1'
+uci set system.@system[0].cronloglevel='1'
+uci commit system
 
-config timeserver 'ntp'
-        list server 'ntp.aliyun.com'
-        list server 'time1.aliyun.com'
-        list server 'cn.pool.ntp.org'
+# dnsmasq 转发至 AdGuardHome
+uci set dhcp.@dnsmasq[0].server='127.0.0.1#5353'
+uci set dhcp.@dnsmasq[0].cache-size='4096'
+uci commit dhcp
+
+# 关闭冗余日志服务
+/etc/init.d/logd stop
+/etc/init.d/logd disable
+exit 0
 EOF
+chmod +x package/base-files/files/etc/uci-defaults/99-base-setting
 
-# ==================== 6. 开启插件 ====================
+# ====================== 6. WiFi 配置：名称2025 + 澳大利亚AU大功率 ======================
+cat > package/base-files/files/etc/uci-defaults/99-wifi-setting <<EOF
+#!/bin/sh
+# 2.4G 无线
+uci set wireless.radio0.country='AU'
+uci set wireless.radio0.txpower='23'
+uci set wireless.radio0.htmode='HT40'
+uci set wireless.default_radio0.ssid='2025'
+uci set wireless.default_radio0.encryption='psk2'
+uci set wireless.default_radio0.key='12345678'
+uci set wireless.default_radio0.disabled='0'
+
+# 5G 无线
+uci set wireless.radio1.country='AU'
+uci set wireless.radio1.txpower='25'
+uci set wireless.radio1.htmode='VHT80'
+uci set wireless.default_radio1.ssid='2025'
+uci set wireless.default_radio1.encryption='psk2'
+uci set wireless.default_radio1.key='12345678'
+uci set wireless.default_radio1.disabled='0'
+
+uci commit wireless
+exit 0
+EOF
+chmod +x package/base-files/files/etc/uci-defaults/99-wifi-setting
+
+# ====================== 7. AdGuardHome 完整优化配置 ======================
+cat > package/base-files/files/etc/uci-defaults/99-adguardhome-setting <<EOF
+#!/bin/sh
+# AGH 基础开关与端口
+uci set adguardhome.adguardhome.enabled='1'
+uci set adguardhome.adguardhome.port='5353'
+uci set adguardhome.adguardhome.web_port='3000'
+uci commit adguardhome
+
+# 写入AGH核心配置文件
+mkdir -p /etc/AdGuardHome
+cat > /etc/AdGuardHome/AdGuardHome.yaml <<AGH_CONF
+bind_host: 0.0.0.0
+bind_port: 3000
+beta: false
+dns:
+  bind_host: 0.0.0.0
+  port: 5353
+  timeout: 5
+  blocked_response_ttl: 60
+  ratelimit: 0
+  max_goroutines: 512
+  cache_size: 16777216
+  cache_ttl_min: 300
+  cache_ttl_max: 86400
+  upstream_dns:
+    - 223.5.5.5
+    - 223.6.6.6
+    - 114.114.114.114
+    - 94.140.14.49
+    - 94.140.14.59
+  all_servers: true
+  use_dnssec: true
+filters:
+  - enabled: true
+    url: https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
+    name: AdGuard 基础过滤
+  - enabled: true
+    url: https://easylist-downloads.adblockplus.org/easylistchina.txt
+    name: 国内广告过滤
+  - enabled: true
+    url: https://anti-ad.net/easylist.txt
+    name: 去广告规则
+  - enabled: true
+    url: https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/tracking-protection/filter.txt
+    name: 隐私追踪拦截
+querylog:
+  enabled: true
+  file_enabled: false
+  mem_size: 800
+http:
+  enabled: true
+addresses:
+  allowed: []
+  disallowed: []
+AGH_CONF
+
+/etc/init.d/adguardhome enable
+/etc/init.d/adguardhome start
+exit 0
+EOF
+chmod +x package/base-files/files/etc/uci-defaults/99-adguardhome-setting
+
+# ====================== 8. 启用插件 & 语言包配置 ======================
 echo "CONFIG_PACKAGE_luci-app-easytier=y" >> .config
+echo "CONFIG_PACKAGE_adguardhome=y" >> .config
+echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
+echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
+echo "CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y" >> .config
+echo "CONFIG_PACKAGE_luci-i18n-easytier-zh-cn=y" >> .config
 
+# 刷新配置
 make defconfig
