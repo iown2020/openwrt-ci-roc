@@ -1,6 +1,6 @@
 #!/bin/bash
-# 360V6 IPQ60XX 512M 最终脚本
-# 纯脚本注入、不新建独立files目录 | 全功能：IP/汉化/性能/WiFi/AGH/EasyTier
+# 360V6 IPQ60XX 512M 全功能优化脚本
+# 特性：无独立files目录 | 固定IP | 全局中文 | 性能优化 | WiFi AU满功率 | AdGuardHome | EasyTier
 set -e
 
 # ====================== 1. 修改默认管理IP + 主机名 ======================
@@ -18,7 +18,7 @@ options ath11k disable_160mhz=1
 options ath11k reset_on_err=1
 EOF
 
-# ====================== 4. 系统全局性能调优（sysctl） ======================
+# ====================== 4. 系统全局性能调优 ======================
 cat > package/base-files/files/etc/sysctl.conf <<EOF
 vm.swappiness=5
 vm.vfs_cache_pressure=30
@@ -39,7 +39,7 @@ net.ipv4.ip_forward=1
 net.ipv4.tcp_no_metrics_save=1
 EOF
 
-# ====================== 5. 基础默认配置：中文、时区、DNS转发 ======================
+# ====================== 5. 基础默认配置：中文、时区、日志、DNS转发 ======================
 mkdir -p package/base-files/files/etc/uci-defaults
 cat > package/base-files/files/etc/uci-defaults/99-base-setting <<EOF
 #!/bin/sh
@@ -68,7 +68,7 @@ chmod +x package/base-files/files/etc/uci-defaults/99-base-setting
 # ====================== 6. WiFi 配置：名称2025 + 澳大利亚AU大功率 ======================
 cat > package/base-files/files/etc/uci-defaults/99-wifi-setting <<EOF
 #!/bin/sh
-# 2.4G 无线
+# 2.4G WiFi
 uci set wireless.radio0.country='AU'
 uci set wireless.radio0.txpower='23'
 uci set wireless.radio0.htmode='HT40'
@@ -77,7 +77,7 @@ uci set wireless.default_radio0.encryption='psk2'
 uci set wireless.default_radio0.key='12345678'
 uci set wireless.default_radio0.disabled='0'
 
-# 5G 无线
+# 5G WiFi
 uci set wireless.radio1.country='AU'
 uci set wireless.radio1.txpower='25'
 uci set wireless.radio1.htmode='VHT80'
@@ -94,13 +94,13 @@ chmod +x package/base-files/files/etc/uci-defaults/99-wifi-setting
 # ====================== 7. AdGuardHome 完整优化配置 ======================
 cat > package/base-files/files/etc/uci-defaults/99-adguardhome-setting <<EOF
 #!/bin/sh
-# AGH 基础开关与端口
+# AGH 端口与启用
 uci set adguardhome.adguardhome.enabled='1'
 uci set adguardhome.adguardhome.port='5353'
 uci set adguardhome.adguardhome.web_port='3000'
 uci commit adguardhome
 
-# 写入AGH核心配置文件
+# 写入AGH核心配置
 mkdir -p /etc/AdGuardHome
 cat > /etc/AdGuardHome/AdGuardHome.yaml <<AGH_CONF
 bind_host: 0.0.0.0
@@ -154,7 +154,7 @@ exit 0
 EOF
 chmod +x package/base-files/files/etc/uci-defaults/99-adguardhome-setting
 
-# ====================== 8. 启用插件 & 语言包配置 ======================
+# ====================== 8. 插件与语言包配置 ======================
 echo "CONFIG_PACKAGE_luci-app-easytier=y" >> .config
 echo "CONFIG_PACKAGE_adguardhome=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
