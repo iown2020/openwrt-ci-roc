@@ -1,361 +1,89 @@
-name: 360V6-LibWrt (NSS硬件加速版)
+name: IPQ60XX 360V6 NSS 固件编译
 
 on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
-  # schedule:
-  #   - cron: 0 20 * * 0  # 每周日自动编译（取消注释启用）
-
-env:
-  REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
-  REPO_BRANCH: main-nss
-  CONFIG_FILE: configs/IPQ60XX.config
-  GENERAL_CONFIG_FILE: configs/General.config
-  DIY_SCRIPT: scripts/Roc-script.sh
-  TZ: Asia/Shanghai
-  FIRMWARE_TAG: 360V6-NSS
 
 jobs:
-  Build:
-    runs-on: ubuntu-24.04
+  build:
+    runs-on: ubuntu-22.04
     permissions:
-      contents: write  # 修复403权限错误：授予写入权限
+      contents: write
+      pull-requests: read
 
     steps:
-    - name: 检查服务器性能
-      run: |
-        echo "警告⚠"
-        echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
-        echo -e "已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 \n"
-        echo "--------------------------CPU信息--------------------------"
-        echo "CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
-        echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
-        echo "--------------------------内存信息--------------------------"
-        echo "已安装内存详细信息："
-        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
-        echo "--------------------------硬盘信息--------------------------"
-        echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+      - name: 基础环境准备
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: 初始化编译环境（优化磁盘空间）
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        # 释放更多磁盘空间（删除不必要的预装软件）
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo docker system prune -a -f
-        
-        sudo -E apt-get -y update
-        sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
-        sudo -E apt-get -y autoremove --purge
-        sudo -E apt-get -y clean
-        sudo -E systemctl daemon-reload
-        sudo timedatectl set-timezone "$TZ"
-        
-        echo "清理后磁盘空间："
-        df -hT
+      - name: 安装依赖
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential gcc g++ binutils bzip2 flex python3 python3-pip \
+            perl make cmake autoconf automake libtool libssl-dev libcurl4-openssl-dev \
+            libncurses-dev zlib1g-dev gawk git gettext libsigsegv-dev \
+            wget unzip patch bc rsync subversion libxml2-utils
 
-    - name: 检出仓库代码
-      uses: actions/checkout@main
+      - name: 缓存 OpenWrt 编译目录
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt
+            !openwrt/.git
+            !openwrt/build_dir
+            !openwrt/bin
+            !openwrt/staging_dir
+          key: ${{ runner.os }}-ipq60xx-${{ hashFiles('**/configs/IPQ60XX.config') }}
+          restore-keys: |
+            ${{ runner.os }}-ipq60xx-
 
-    - name: 克隆LiBwrt源码
-      run: |
-        df -hT $GITHUB_WORKSPACE
-        sudo mkdir -p /mnt/openwrt
-        sudo chown -R $(id -u):$(id -g) /mnt/openwrt
-        git clone --depth 1 -b $REPO_BRANCH --single-branch $REPO_URL /mnt/openwrt
-        cd /mnt/openwrt
-        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-        VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")
-        echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
-        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12)
-        echo "VERSION_KERNEL=$VERSION_KERNEL" >> $GITHUB_ENV
+      - name: 克隆 LibWrt 源码（laipeng668 main-nss）
+        run: |
+          git clone --depth 1 --branch main-nss https://github.com/laipeng668/openwrt-6.x openwrt
+          cd openwrt
+          git apply ../scripts/*.patch 2>/dev/null || true
 
-    - name: 更新并安装Feeds
-      run: |
-        cd $OPENWRT_PATH
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: 复制配置文件
+        run: |
+          cp -vf configs/General.config openwrt/.config
+          cp -vf configs/IPQ60XX.config openwrt/.config
+          cp -vf scripts/Roc-script.sh openwrt/
+          chmod +x openwrt/Roc-script.sh
 
-    - name: 合并配置文件并强制单设备模式
-      run: |
-        # 先加载通用配置
-        cat $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
-        
-        # 强制关闭多设备模式（关键修复1）
-        echo "CONFIG_TARGET_MULTI_PROFILE=n" >> $OPENWRT_PATH/.config
-        
-        # 强制只选择360V6设备（关键修复2）
-        echo "CONFIG_TARGET_qualcommax=y" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_qihoo_360v6=y" >> $OPENWRT_PATH/.config
-        
-        # 强制禁用所有其他设备（关键修复3）
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_alfa-network_ap120c-ax=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_anysafe_e1=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_cambiumnetworks_xe3-4=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_cmiot_ax18=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_glinet_gl-ax1800=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_glinet_gl-axt1800=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-cs-02=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-cs-07=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_kt_ar06-012h=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_lg_gapd-7500=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_link_nn6000-v1=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_link_nn6000-v2=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_linksys_mr7350=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_linksys_mr7500=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_wax214=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_wax610=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_wax610y=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_redmi_ax5=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_redmi_ax5-jdcloud=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap610-outdoor=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap620-hd-v3=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap623-outdoor-hd-v1=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_tplink_eap625-outdoor-hd-v1=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_xiaomi_ax1800=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_yuncore_fap650=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_rbr350=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_netgear_rbs350=n" >> $OPENWRT_PATH/.config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_zn_m2=n" >> $OPENWRT_PATH/.config
-        
-        # 强制启用NSS硬件加速
-        echo "CONFIG_ATH11K_MEM_PROFILE_512M=y" >> $OPENWRT_PATH/.config
-        echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=y" >> $OPENWRT_PATH/.config
-        echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> $OPENWRT_PATH/.config
-        echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> $OPENWRT_PATH/.config
-        
-        # 移除无效的京东云LED配置
-        sed -i '/athena-led/d' $OPENWRT_PATH/.config
-        
-        cd $OPENWRT_PATH
-        make defconfig
-        
-        # 再次强制确认设备选择（关键修复4）
-        sed -i 's/CONFIG_TARGET_MULTI_PROFILE=y/CONFIG_TARGET_MULTI_PROFILE=n/' .config
-        sed -i 's/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_.*=y/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_qihoo_360v6=y/' .config
-        
-        # 验证最终配置
-        echo "最终设备配置："
-        grep -E "CONFIG_TARGET_MULTI_PROFILE|CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_" .config | grep -v "=n"
-        
-        # 生成编译变量
-        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
-        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
-        DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
-        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
-        DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
-        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-        echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
-        echo "CACHE_DATE=$(date +"%Y-%m-%d")" >> $GITHUB_ENV
+      - name: 执行自定义脚本
+        run: |
+          cd openwrt
+          ./Roc-script.sh
 
-    - name: 缓存工具链（加速后续编译）
-      uses: actions/cache@main
-      with:
-        key: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.HASH }}
-        restore-keys: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
-        path: |
-          ${{ env.OPENWRT_PATH }}/.ccache
-          ${{ env.OPENWRT_PATH }}/staging_dir
-
-    - name: 刷新缓存时间戳
-      run: |
-        if [ -d "$OPENWRT_PATH/staging_dir" ]; then
-          find "$OPENWRT_PATH/staging_dir" -type d -name "stamp" -not -path "*target*" | while read -r dir; do
-              find "$dir" -type f -exec touch {} +
-          done
-        fi
-
-    - name: 执行DIY脚本
-      run: |
-        if [ -f "$GITHUB_WORKSPACE/$DIY_SCRIPT" ]; then
-          chmod +x $GITHUB_WORKSPACE/$DIY_SCRIPT
-          cd $OPENWRT_PATH
-          $GITHUB_WORKSPACE/$DIY_SCRIPT
-          
-          # 再次强制确认设备选择（防止DIY脚本修改）
-          sed -i 's/CONFIG_TARGET_MULTI_PROFILE=y/CONFIG_TARGET_MULTI_PROFILE=n/' .config
-          sed -i 's/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_.*=y/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_qihoo_360v6=y/' .config
-          
+      - name: 下载依赖包
+        run: |
+          cd openwrt
           make defconfig
-        fi
+          make download -j$(nproc)
 
-    - name: 下载所有依赖包
-      run: |
-        cd $OPENWRT_PATH
-        make download -j$(nproc)
-        
-        echo "下载完成后磁盘空间："
-        df -hT
+      - name: 编译固件（多线程）
+        run: |
+          cd openwrt
+          make -j$(nproc) V=s
 
-    - name: 开始编译固件（带完整错误日志）
-      id: compile
-      run: |
-        cd $OPENWRT_PATH
-        echo -e "使用 $(nproc) 线程进行编译"
-        
-        # 先尝试多线程编译
-        if make -j$(nproc); then
-          echo "多线程编译成功"
-        else
-          echo "多线程编译失败，尝试单线程编译并输出详细日志"
-          make -j1 V=s 2>&1 | tee compile_error.log
-          
-          # 检查是否真的生成了固件
-          if [ -d "bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET" ]; then
-            echo "单线程编译成功"
-          else
-            echo "编译彻底失败，错误日志如下："
-            cat compile_error.log
-            exit 1
-          fi
-        fi
-        
-        echo "status=success" >> $GITHUB_OUTPUT
-        echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
-        echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+      - name: 整理固件产物
+        run: |
+          mkdir -p output
+          cp -vf openwrt/bin/targets/qualcommax/ipq60xx/*.bin output/
+          cp -vf openwrt/bin/targets/qualcommax/ipq60xx/*.ubi output/
+          ls -lh output/
 
-    - name: 检查磁盘空间
-      if: (!cancelled())
-      run: df -hT
-
-    - name: 验证固件是否生成
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        cd $OPENWRT_PATH/bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET
-        
-        echo "目标目录内容："
-        ls -la
-        
-        # 检查是否有.bin文件
-        if ls *.bin 1> /dev/null 2>&1; then
-          echo "✅ 固件文件生成成功"
-        else
-          echo "❌ 没有生成任何固件文件"
-          echo "检查是否有360V6的manifest文件："
-          ls -la *qihoo_360v6* || echo "没有找到360V6相关文件"
-          
-          echo "编译日志最后200行："
-          tail -n 200 $OPENWRT_PATH/compile_error.log || echo "没有找到编译错误日志"
-          exit 1
-        fi
-
-    - name: 验证插件是否被编译
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        cd $OPENWRT_PATH/bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET
-        
-        echo "检查插件是否存在于manifest中："
-        if grep -q "luci-app-netwizard" 360V6.manifest; then
-          echo "✅ 网络向导插件已编译"
-        else
-          echo "❌ 网络向导插件未编译"
-        fi
-        
-        if grep -q "adguardhome" 360V6.manifest; then
-          echo "✅ AdGuardHome插件已编译"
-        else
-          echo "❌ AdGuardHome插件未编译"
-        fi
-        
-        if grep -q "easytier" 360V6.manifest; then
-          echo "✅ EasyTier插件已编译"
-        else
-          echo "❌ EasyTier插件未编译"
-        fi
-        
-        if grep -q "luci-app-openclash" 360V6.manifest; then
-          echo "✅ OpenClash插件已编译"
-        else
-          echo "❌ OpenClash插件未编译"
-        fi
-        
-        echo "检查IPK文件是否存在："
-        ls -la packages/*/luci-app-netwizard*.ipk 2>/dev/null || echo "没有找到网络向导IPK"
-        ls -la packages/*/adguardhome*.ipk 2>/dev/null || echo "没有找到AdGuardHome IPK"
-        ls -la packages/*/luci-app-adguardhome*.ipk 2>/dev/null || echo "没有找到AdGuardHome WebUI IPK"
-        ls -la packages/*/easytier*.ipk 2>/dev/null || echo "没有找到EasyTier IPK"
-        ls -la packages/*/luci-app-easytier*.ipk 2>/dev/null || echo "没有找到EasyTier WebUI IPK"
-        ls -la packages/*/luci-app-openclash*.ipk 2>/dev/null || echo "没有找到OpenClash IPK"
-
-    - name: 整理固件文件（修复版）
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        cd $OPENWRT_PATH/bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET
-        
-        # 复制配置文件
-        cp $OPENWRT_PATH/.config 360V6.config
-        mv config.buildinfo 360V6.config.buildinfo
-        
-        # 重命名360V6的manifest文件
-        mv *qihoo_360v6*.manifest 360V6.manifest 2>/dev/null || mv *.manifest 360V6.manifest
-        
-        # 保留软件包目录结构
-        mkdir -p packages
-        cp -r $OPENWRT_PATH/bin/packages/*/* packages/
-        tar -zcf 360V6.Packages.tar.gz packages
-        
-        # 删除无用文件
-        rm -rf feeds.buildinfo version.buildinfo sha256sums profiles.json packages
-        
-        # 自动重命名固件文件为友好名称
-        for file in *.bin; do
-          if [[ $file == *factory* ]]; then
-            mv "$file" "360V6-factory.bin"
-          elif [[ $file == *sysupgrade* ]]; then
-            mv "$file" "360V6-sysupgrade.bin"
-          fi
-        done
-        
-        # 列出所有生成的固件文件
-        echo "最终生成的固件文件："
-        ls -la *.bin
-        
-        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
-
-    - name: 发布固件到Release
-      if: steps.compile.outputs.status == 'success'
-      uses: ncipollo/release-action@main
-      with:
-        name: ${{ env.DATE }} for 360V6 (NSS版)
-        allowUpdates: true
-        tag: ${{ env.FIRMWARE_TAG }}
-        token: ${{ secrets.GITHUB_TOKEN }}
-        artifacts: ${{ env.FIRMWARE_PATH }}/*
-        body: |
-          **✅ 360V6路由器专属OpenWrt固件（全功能NSS硬件加速）**
-          
-          ### 📒 基本信息
-          - 🧠 内核版本：**${{ env.VERSION_KERNEL }}**
-          - ⚡ 网络加速：**全功能NSS硬件加速**（NAT/PPPoE/防火墙/WiFi）
-          - 🎨 默认主题：Aurora
-          - 🌐 默认地址：**192.168.50.1**
-          - 🔑 默认密码：无（首次登录请设置）
-          
-          ### 📦 预装核心功能
-          - 🚀 **网络向导**：首次开机自动引导配置上网和WiFi
-          - 🛡️ **AdGuardHome**：全平台广告拦截+DNS防污染
-          - 🌐 **OpenClash**：科学上网客户端（含完整内核）
-          - 🔗 **EasyTier**：虚拟局域网组网，远程访问家里设备
-          - 🔌 **Samba4**：文件共享服务
-          - 📶 **WireGuard**：VPN服务
-          - 🔄 **自动重启**：定时重启路由器
-          - 🐶 **网络看门狗**：断网自动恢复
-          
-          ### 📚 源码信息
-          - 💻 固件源码：${{ env.REPO_URL }}
-          - 🌿 源码分支：${{ env.REPO_BRANCH }}
-          - 最后一次更新：
-          ${{ env.VERSION_INFO }}
-
-    - name: 清理旧缓存（保留最近3个）
-      run: |
-        gh cache list --key ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}- --json key,createdAt --jq 'sort_by(.createdAt) | reverse | .[3:] | .[] | .key' | while read -r key; do
-          gh cache delete "$key"
-        done
-        echo "========缓存状态========"
-        echo "ccache: $(du -sh $OPENWRT_PATH/.ccache | cut -f 1)"
-        echo "staging: $(du -sh $OPENWRT_PATH/staging_dir | cut -f 1)"
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            output/*.bin
+            output/*.ubi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
