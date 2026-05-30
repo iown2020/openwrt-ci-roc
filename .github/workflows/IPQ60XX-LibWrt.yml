@@ -3,9 +3,9 @@ name: 360V6-NSS 固件编译（Roc）
 on:
   workflow_dispatch:
 
+# 只留这一个，解决 Node 问题
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
   REPO_BRANCH: main-nss
   CONFIG_FILE: configs/IPQ60XX.config
