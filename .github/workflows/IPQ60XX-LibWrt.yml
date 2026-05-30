@@ -1,5 +1,4 @@
-name: 360V6-LibWrt (NSS硬件加速版)
-
+name: 360V6 NSS 优化固件
 on:
   workflow_dispatch:
 
@@ -21,7 +20,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-    - name: 初始化环境
+    - name: 初始化编译环境
       run: |
         sudo apt update > /dev/null 2>&1
         sudo apt install -y build-essential ccache git libssl-dev python3 python3-pip unzip bzip2 wget gawk flex bison libncurses-dev zlib1g-dev
@@ -29,7 +28,7 @@ jobs:
     - name: 检出仓库代码
       uses: actions/checkout@v4
 
-    - name: 克隆源码
+    - name: 拉取 OpenWrt 源码
       run: |
         sudo mkdir -p /mnt/openwrt
         sudo chown -R $(id -u):$(id -g) /mnt/openwrt
@@ -37,19 +36,19 @@ jobs:
         cd /mnt/openwrt
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
 
-    - name: 复制配置 + 脚本
+    - name: 复制配置与脚本
       run: |
         cp $GITHUB_WORKSPACE/$GENERAL_CONFIG_FILE $OPENWRT_PATH/.config
         cp $GITHUB_WORKSPACE/$CONFIG_FILE $OPENWRT_PATH/.config
         cp $GITHUB_WORKSPACE/$DIY_SCRIPT $OPENWRT_PATH/
         chmod +x $OPENWRT_PATH/Roc-script.sh
 
-    - name: 执行优化脚本
+    - name: 执行综合优化脚本
       run: |
         cd $OPENWRT_PATH
         ./Roc-script.sh
 
-    - name: 下载依赖
+    - name: 下载编译依赖
       run: |
         cd $OPENWRT_PATH
         make download -j$(nproc)
@@ -59,16 +58,16 @@ jobs:
         cd $OPENWRT_PATH
         make -j$(nproc) || make -j1 V=s
 
-    - name: 清理无用文件
+    - name: 清理冗余文件
       run: |
         cd $OPENWRT_PATH/bin/targets/qualcommax/ipq60xx
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
-    - name: 上传固件
+    - name: 上传固件到 Release
       uses: ncipollo/release-action@v1
       with:
-        name: 360V6 NSS固件
+        name: 360V6 NSS 优化固件
         allowUpdates: true
         tag: ${{ env.FIRMWARE_TAG }}
         token: ${{ secrets.GITHUB_TOKEN }}
